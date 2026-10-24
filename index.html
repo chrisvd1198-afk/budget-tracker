@@ -11,7 +11,7 @@
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Firebase SDKs (Compat Version for browser) -->
+    <!-- Firebase SDKs (Compat Version) -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -32,8 +32,8 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-lg text-slate-900 leading-tight">Budget & Expense Tracker</h1>
-                    <p id="sync-status" class="text-xs text-indigo-600 font-medium flex items-center gap-1.5 mt-0.5">
-                        <span class="inline-block w-2 h-2 rounded-full bg-indigo-500"></span> Local Storage Active
+                    <p id="sync-status" class="text-xs text-amber-600 font-medium flex items-center gap-1.5 mt-0.5">
+                        <span class="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> Connecting to Cloud...
                     </p>
                 </div>
             </div>
@@ -48,10 +48,7 @@
                         <option value="£">GBP (£)</option>
                     </select>
                 </div>
-                <button onclick="openFirebaseModal()" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold px-3 py-2 rounded-lg transition border border-emerald-200 cursor-pointer flex items-center gap-1.5">
-                    <i class="fa-solid fa-cloud-arrow-up"></i> Setup Firebase
-                </button>
-                <button onclick="seedSampleData()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-2 rounded-lg transition border border-indigo-200 cursor-pointer">
+                <button type="button" onclick="seedSampleData()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-2 rounded-lg transition border border-indigo-200 cursor-pointer">
                     <i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Quick Test Data
                 </button>
             </div>
@@ -86,7 +83,7 @@
                     <h3 class="font-bold text-base text-slate-900 flex items-center gap-2">
                         <i class="fa-solid fa-layer-group text-indigo-600"></i> Budget Categories
                     </h3>
-                    <button onclick="openCategoryModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer">
+                    <button type="button" onclick="openCategoryModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer">
                         <i class="fa-solid fa-plus"></i> Add Category
                     </button>
                 </div>
@@ -104,4 +101,488 @@
                 <form id="expense-form" onsubmit="handleExpenseSubmit(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
                         <label class="block text-xs font-semibold text-slate-600 mb-1">Category</label>
-                        <select id="expense-category" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:bg-
+                        <select id="expense-category" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                            <option value="">Select Category</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Amount</label>
+                        <input type="number" step="0.01" id="expense-amount" placeholder="0.00" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Description / Note</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="expense-note" placeholder="e.g. Woolworths groceries" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                            <button type="submit" class="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-sm font-semibold transition shrink-0 cursor-pointer">
+                                <i class="fa-solid fa-check"></i>
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </section>
+        </div>
+
+        <!-- Right Column: Charts & Recent Transactions -->
+        <div class="space-y-6">
+            <!-- Analytics Chart -->
+            <section class="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col items-center">
+                <h3 class="font-bold text-base text-slate-900 w-full mb-2 flex items-center gap-2">
+                    <i class="fa-solid fa-chart-pie text-indigo-600"></i> Spending Breakdown
+                </h3>
+                <div class="w-full h-56 relative flex items-center justify-center">
+                    <canvas id="spendingChart"></canvas>
+                </div>
+            </section>
+
+            <!-- Transaction History -->
+            <section class="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="font-bold text-base text-slate-900 flex items-center gap-2">
+                        <i class="fa-solid fa-clock-rotate-left text-indigo-600"></i> Recent Expenses
+                    </h3>
+                    <span id="transaction-count" class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">0 items</span>
+                </div>
+                <div id="transaction-list" class="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
+                    <div class="text-center py-6 text-slate-400 text-xs">No transactions recorded yet.</div>
+                </div>
+            </section>
+        </div>
+
+    </main>
+
+    <!-- Modal: Add / Edit Category -->
+    <div id="category-modal" style="display: none;" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl border border-slate-200">
+            <h3 id="cat-modal-title" class="font-bold text-lg text-slate-900 mb-4">Create Budget Category</h3>
+            <form onsubmit="handleCategorySubmit(event)" class="space-y-4">
+                <input type="hidden" id="cat-edit-id">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Category Name</label>
+                    <input type="text" id="cat-name" placeholder="e.g. Groceries, Fuel" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">Monthly Budget Allocation</label>
+                    <input type="number" step="0.01" id="cat-budget" placeholder="0.00" required class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeCategoryModal()" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">Cancel</button>
+                    <button type="submit" class="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition cursor-pointer">Save Category</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Application Script Logic -->
+    <script>
+        // Pre-configured Firebase Connection
+        const firebaseConfig = {
+            apiKey: "AIzaSyAS0PNsVZkQ-NnA4tuRQgwFZNsS8NKf3q0",
+            authDomain: "mybudgetapp-78139.firebaseapp.com",
+            projectId: "mybudgetapp-78139",
+            storageBucket: "mybudgetapp-78139.firebasestorage.app",
+            messagingSenderId: "1079737396137",
+            appId: "1:1079737396137:web:94073137ba0df430ae32b8"
+        };
+
+        let db = null;
+        let auth = null;
+        let userId = null;
+        let isCloudSynced = false;
+
+        let appData = {
+            currency: 'R',
+            categories: [],
+            expenses: []
+        };
+
+        let spendingChartInstance = null;
+
+        function initApp() {
+            try {
+                if (typeof firebase !== 'undefined' && firebaseConfig.apiKey) {
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp(firebaseConfig);
+                    }
+                    auth = firebase.auth();
+                    db = firebase.firestore();
+
+                    auth.signInAnonymously().then((userCredential) => {
+                        userId = userCredential.user.uid;
+                        isCloudSynced = true;
+                        updateSyncBadge(true);
+                        setupCloudListeners();
+                    }).catch((err) => {
+                        console.warn("Firebase sign in failed:", err);
+                        initLocalStorageMode();
+                    });
+                } else {
+                    initLocalStorageMode();
+                }
+            } catch(e) {
+                console.warn("Firebase init exception:", e);
+                initLocalStorageMode();
+            }
+        }
+
+        function initLocalStorageMode() {
+            isCloudSynced = false;
+            updateSyncBadge(false);
+            try {
+                const saved = localStorage.getItem('budget_app_data');
+                if (saved) {
+                    appData = JSON.parse(saved);
+                }
+            } catch(e) {}
+
+            if (!appData.categories || appData.categories.length === 0) {
+                appData.categories = [
+                    { id: 'cat-1', name: 'Groceries', budget: 4500 },
+                    { id: 'cat-2', name: 'Utilities', budget: 2000 }
+                ];
+                saveLocalData();
+            }
+            
+            const curSelect = document.getElementById('currency-select');
+            if (curSelect) curSelect.value = appData.currency || 'R';
+            renderApp();
+        }
+
+        function saveLocalData() {
+            try {
+                localStorage.setItem('budget_app_data', JSON.stringify(appData));
+            } catch(e) {}
+        }
+
+        function updateSyncBadge(synced) {
+            const badge = document.getElementById('sync-status');
+            if (!badge) return;
+            if (synced) {
+                badge.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span> Cloud Synced (Firebase)`;
+                badge.className = "text-xs text-emerald-600 font-medium flex items-center gap-1.5 mt-0.5";
+            } else {
+                badge.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-indigo-500"></span> Local Storage Active`;
+                badge.className = "text-xs text-indigo-600 font-medium flex items-center gap-1.5 mt-0.5";
+            }
+        }
+
+        function setupCloudListeners() {
+            if (!db || !userId) return;
+
+            // Fetch user preference / currency if stored
+            db.collection('users').doc(userId).get().then(doc => {
+                if (doc.exists && doc.data().currency) {
+                    appData.currency = doc.data().currency;
+                    const curSelect = document.getElementById('currency-select');
+                    if (curSelect) curSelect.value = appData.currency;
+                }
+            }).catch(err => {});
+
+            db.collection('users').doc(userId).collection('categories').onSnapshot(snapshot => {
+                appData.categories = [];
+                snapshot.forEach(doc => appData.categories.push({ id: doc.id, ...doc.data() }));
+                renderApp();
+            }, err => console.error("Cloud cat error:", err));
+
+            db.collection('users').doc(userId).collection('expenses').orderBy('date', 'desc').onSnapshot(snapshot => {
+                appData.expenses = [];
+                snapshot.forEach(doc => appData.expenses.push({ id: doc.id, ...doc.data() }));
+                renderApp();
+            }, err => console.error("Cloud exp error:", err));
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const curSelect = document.getElementById('currency-select');
+            if (curSelect) {
+                curSelect.addEventListener('change', (e) => {
+                    appData.currency = e.target.value;
+                    if (isCloudSynced && db && userId) {
+                        db.collection('users').doc(userId).set({ currency: appData.currency }, { merge: true });
+                    } else {
+                        saveLocalData();
+                    }
+                    renderApp();
+                });
+            }
+        });
+
+        function openCategoryModal(catId = null) {
+            const modal = document.getElementById('category-modal');
+            if (!modal) return;
+
+            if (catId) {
+                const cat = appData.categories.find(c => c.id === catId);
+                if (cat) {
+                    document.getElementById('cat-modal-title').innerText = "Edit Category";
+                    document.getElementById('cat-edit-id').value = cat.id;
+                    document.getElementById('cat-name').value = cat.name;
+                    document.getElementById('cat-budget').value = cat.budget;
+                }
+            } else {
+                document.getElementById('cat-modal-title').innerText = "Create Budget Category";
+                document.getElementById('cat-edit-id').value = "";
+                document.getElementById('cat-name').value = "";
+                document.getElementById('cat-budget').value = "";
+            }
+            modal.style.display = 'flex';
+        }
+
+        function closeCategoryModal() {
+            const modal = document.getElementById('category-modal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        async function handleCategorySubmit(e) {
+            e.preventDefault();
+            const editId = document.getElementById('cat-edit-id').value;
+            const name = document.getElementById('cat-name').value.trim();
+            const budget = parseFloat(document.getElementById('cat-budget').value);
+
+            if (!name || isNaN(budget)) return;
+
+            if (editId) {
+                if (isCloudSynced && db && userId) {
+                    await db.collection('users').doc(userId).collection('categories').doc(editId).update({ name, budget });
+                } else {
+                    const index = appData.categories.findIndex(c => c.id === editId);
+                    if (index !== -1) {
+                        appData.categories[index] = { id: editId, name, budget };
+                        saveLocalData();
+                    }
+                }
+            } else {
+                if (isCloudSynced && db && userId) {
+                    await db.collection('users').doc(userId).collection('categories').add({ name, budget });
+                } else {
+                    appData.categories.push({ id: 'cat-' + Date.now(), name, budget });
+                    saveLocalData();
+                }
+            }
+
+            closeCategoryModal();
+            renderApp();
+        }
+
+        async function deleteCategory(id) {
+            if (!confirm("Are you sure you want to delete this category?")) return;
+
+            if (isCloudSynced && db && userId) {
+                await db.collection('users').doc(userId).collection('categories').doc(id).delete();
+            } else {
+                appData.categories = appData.categories.filter(c => c.id !== id);
+                saveLocalData();
+            }
+            renderApp();
+        }
+
+        async function handleExpenseSubmit(e) {
+            e.preventDefault();
+            const categoryId = document.getElementById('expense-category').value;
+            const amount = parseFloat(document.getElementById('expense-amount').value);
+            const note = document.getElementById('expense-note').value.trim();
+
+            if (!categoryId || isNaN(amount) || !note) return;
+
+            const categoryObj = appData.categories.find(c => c.id === categoryId);
+            const newExpense = {
+                categoryId,
+                categoryName: categoryObj ? categoryObj.name : 'General',
+                amount,
+                note,
+                date: new Date().toISOString()
+            };
+
+            if (isCloudSynced && db && userId) {
+                await db.collection('users').doc(userId).collection('expenses').add(newExpense);
+            } else {
+                newExpense.id = 'exp-' + Date.now();
+                appData.expenses.unshift(newExpense);
+                saveLocalData();
+            }
+
+            document.getElementById('expense-amount').value = '';
+            document.getElementById('expense-note').value = '';
+            renderApp();
+        }
+
+        async function deleteExpense(id) {
+            if (isCloudSynced && db && userId) {
+                await db.collection('users').doc(userId).collection('expenses').doc(id).delete();
+            } else {
+                appData.expenses = appData.expenses.filter(exp => exp.id !== id);
+                saveLocalData();
+            }
+            renderApp();
+        }
+
+        function seedSampleData() {
+            appData.categories = [
+                { id: 'cat-s1', name: 'Groceries', budget: 5000 },
+                { id: 'cat-s2', name: 'Fuel & Transport', budget: 2500 },
+                { id: 'cat-s3', name: 'Dining Out', budget: 1500 }
+            ];
+            appData.expenses = [
+                { id: 'exp-s1', categoryId: 'cat-s1', categoryName: 'Groceries', amount: 1250, note: 'Supermarket weekly run', date: new Date().toISOString() },
+                { id: 'exp-s2', categoryId: 'cat-s2', categoryName: 'Fuel & Transport', amount: 850, note: 'Engen fill up', date: new Date().toISOString() }
+            ];
+            saveLocalData();
+            renderApp();
+        }
+
+        function renderApp() {
+            const cur = appData.currency || 'R';
+            const categories = appData.categories || [];
+            const expenses = appData.expenses || [];
+
+            const selectEl = document.getElementById('expense-category');
+            if (selectEl) {
+                const currentSelected = selectEl.value;
+                selectEl.innerHTML = '<option value="">Select Category</option>' + 
+                    categories.map(c => `<option value="${c.id}">${c.name} (Budget: ${cur} ${c.budget.toLocaleString()})</option>`).join('');
+                selectEl.value = currentSelected;
+            }
+
+            let totalBudget = 0;
+            let totalSpent = 0;
+            const catSpentMap = {};
+
+            expenses.forEach(exp => {
+                catSpentMap[exp.categoryId] = (catSpentMap[exp.categoryId] || 0) + exp.amount;
+                totalSpent += exp.amount;
+            });
+
+            const catListEl = document.getElementById('category-list');
+            if (catListEl) {
+                if (categories.length === 0) {
+                    catListEl.innerHTML = `<div class="text-center py-8 text-slate-400 text-sm">No categories added yet. Click "Add Category" to begin.</div>`;
+                } else {
+                    catListEl.innerHTML = categories.map(cat => {
+                        const spent = catSpentMap[cat.id] || 0;
+                        const remaining = cat.budget - spent;
+                        const pct = cat.budget > 0 ? Math.min(Math.round((spent / cat.budget) * 100), 100) : 0;
+                        totalBudget += cat.budget;
+
+                        let barColor = 'bg-emerald-500';
+                        let badgeClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                        if (pct >= 100) {
+                            barColor = 'bg-rose-500';
+                            badgeClass = 'bg-rose-50 text-rose-700 border-rose-200';
+                        } else if (pct >= 75) {
+                            barColor = 'bg-amber-500';
+                            badgeClass = 'bg-amber-50 text-amber-700 border-amber-200';
+                        }
+
+                        return `
+                            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <div class="flex justify-between items-center mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-bold text-sm text-slate-900">${cat.name}</span>
+                                        <button type="button" onclick="openCategoryModal('${cat.id}')" class="text-slate-400 hover:text-indigo-600 transition p-1 cursor-pointer" title="Edit Budget">
+                                            <i class="fa-solid fa-pen text-xs"></i>
+                                        </button>
+                                        <button type="button" onclick="deleteCategory('${cat.id}')" class="text-slate-400 hover:text-rose-600 transition p-1 cursor-pointer" title="Delete Category">
+                                            <i class="fa-solid fa-trash-can text-xs"></i>
+                                        </button>
+                                    </div>
+                                    <span class="text-xs font-semibold px-2 py-0.5 rounded-full border ${badgeClass}">
+                                        ${cur} ${remaining.toLocaleString()} left
+                                    </span>
+                                </div>
+                                <div class="flex justify-between text-xs text-slate-500 mb-1.5">
+                                    <span>Spent: ${cur} ${spent.toLocaleString()}</span>
+                                    <span>Budget: ${cur} ${cat.budget.toLocaleString()} (${pct}%)</span>
+                                </div>
+                                <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                                    <div class="${barColor} h-2 rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            }
+
+            const totalRemaining = totalBudget - totalSpent;
+            const tbEl = document.getElementById('total-budget');
+            const tsEl = document.getElementById('total-spent');
+            const remEl = document.getElementById('total-remaining');
+
+            if (tbEl) tbEl.innerText = `${cur} ${totalBudget.toLocaleString()}`;
+            if (tsEl) tsEl.innerText = `${cur} ${totalSpent.toLocaleString()}`;
+            if (remEl) {
+                remEl.innerText = `${cur} ${totalRemaining.toLocaleString()}`;
+                remEl.className = `text-lg md:text-xl font-bold mt-1 ${totalRemaining < 0 ? 'text-rose-600' : 'text-emerald-600'}`;
+            }
+
+            const txListEl = document.getElementById('transaction-list');
+            const txCountEl = document.getElementById('transaction-count');
+            if (txCountEl) txCountEl.innerText = `${expenses.length} items`;
+
+            if (txListEl) {
+                if (expenses.length === 0) {
+                    txListEl.innerHTML = `<div class="text-center py-6 text-slate-400 text-xs">No transactions recorded yet.</div>`;
+                } else {
+                    txListEl.innerHTML = expenses.map(exp => `
+                        <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm">
+                            <div>
+                                <p class="font-semibold text-slate-900 leading-tight">${exp.note}</p>
+                                <p class="text-xs text-slate-500 mt-0.5"><span class="font-medium text-indigo-600">${exp.categoryName || 'General'}</span> &bull; ${new Date(exp.date).toLocaleDateString()}</p>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="font-bold text-slate-900">-${cur} ${exp.amount.toLocaleString()}</span>
+                                <button type="button" onclick="deleteExpense('${exp.id}')" class="text-slate-400 hover:text-rose-600 transition p-1 cursor-pointer" title="Delete Expense">
+                                    <i class="fa-solid fa-trash-can text-xs"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            }
+
+            renderChart(categories, catSpentMap, cur);
+        }
+
+        function renderChart(categories, catSpentMap, cur) {
+            const canvasEl = document.getElementById('spendingChart');
+            if (!canvasEl) return;
+            const ctx = canvasEl.getContext('2d');
+            const labels = categories.map(c => c.name);
+            const data = categories.map(c => catSpentMap[c.id] || 0);
+
+            if (spendingChartInstance) {
+                spendingChartInstance.destroy();
+            }
+
+            const isEmpty = data.every(val => val === 0);
+            const chartLabels = isEmpty ? ['No Spending Yet'] : labels;
+            const chartData = isEmpty ? [1] : data;
+            const chartColors = isEmpty ? ['#e2e8f0'] : ['#4f46e5', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+            spendingChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: chartLabels,
+                    datasets: [{
+                        data: chartData,
+                        backgroundColor: chartColors,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 12,
+                                font: { size: 11, family: "'Plus Jakarta Sans', sans-serif" }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        window.onload = initApp;
+    </script>
+</body>
+</html>
