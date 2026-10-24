@@ -32,8 +32,8 @@
                 </div>
                 <div>
                     <h1 class="font-bold text-lg text-slate-900 leading-tight">Budget & Expense Tracker</h1>
-                    <p id="sync-status" class="text-xs text-amber-600 font-medium flex items-center gap-1.5 mt-0.5">
-                        <span class="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> Connecting to Cloud...
+                    <p id="sync-status" class="text-xs text-indigo-600 font-medium flex items-center gap-1.5 mt-0.5">
+                        <span class="inline-block w-2 h-2 rounded-full bg-indigo-500"></span> Local Storage Active
                     </p>
                 </div>
             </div>
@@ -48,6 +48,12 @@
                         <option value="£">GBP (£)</option>
                     </select>
                 </div>
+                
+                <!-- Google Sign-In / User Profile Button -->
+                <button type="button" id="google-auth-btn" onclick="handleGoogleAuth()" class="bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3 py-2 rounded-lg transition border border-slate-300 cursor-pointer flex items-center gap-2 shadow-xs">
+                    <i class="fa-brands fa-google text-rose-500"></i> <span id="auth-btn-text">Sign in with Google</span>
+                </button>
+
                 <button type="button" onclick="seedSampleData()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-2 rounded-lg transition border border-indigo-200 cursor-pointer">
                     <i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Quick Test Data
                 </button>
@@ -187,6 +193,8 @@
         let auth = null;
         let userId = null;
         let isCloudSynced = false;
+        let unsubCategories = null;
+        let unsubExpenses = null;
 
         let appData = {
             currency: 'R',
@@ -205,32 +213,28 @@
                     auth = firebase.auth();
                     db = firebase.firestore();
 
-                    // Safety timeout: If Firebase auth hangs for > 3 seconds, fall back to local mode gracefully
-                    let authTimedOut = false;
-                    const timeoutTimer = setTimeout(() => {
-                        if (!isCloudSynced) {
-                            authTimedOut = true;
-                            console.warn("Firebase auth timed out, falling back to local mode.");
+                    // Listen for authentication state changes (Google Sign-In / Sign-Out)
+                    auth.onAuthStateChanged((user) => {
+                        if (user) {
+                            userId = user.uid;
+                            isCloudSynced = true;
+                            updateSyncBadge(true, user.displayName || user.email);
+                            
+                            db.collection('users').doc(userId).set({ 
+                                lastLogin: new Date().toISOString(),
+                                email: user.email || '',
+                                name: user.displayName || ''
+                            }, { merge: true }).catch(err => {});
+
+                            setupCloudListeners();
+                        } else {
+                            if (unsubCategories) unsubCategories();
+                            if (unsubExpenses) unsubExpenses();
+                            isCloudSynced = false;
+                            userId = null;
+                            updateSyncBadge(false);
                             initLocalStorageMode();
                         }
-                    }, 3500);
-
-                    auth.signInAnonymously().then((userCredential) => {
-                        if (authTimedOut) return;
-                        clearTimeout(timeoutTimer);
-                        userId = userCredential.user.uid;
-                        isCloudSynced = true;
-                        updateSyncBadge(true);
-                        
-                        db.collection('users').doc(userId).set({ lastLogin: new Date().toISOString() }, { merge: true })
-                          .catch(err => console.log("User doc init note:", err));
-
-                        setupCloudListeners();
-                    }).catch((err) => {
-                        if (authTimedOut) return;
-                        clearTimeout(timeoutTimer);
-                        console.warn("Firebase sign in failed:", err);
-                        initLocalStorageMode();
                     });
                 } else {
                     initLocalStorageMode();
@@ -241,9 +245,25 @@
             }
         }
 
+        function handleGoogleAuth() {
+            if (!auth) return;
+            if (isCloudSynced && auth.currentUser) {
+                // If already signed in, prompt to sign out
+                if (confirm("Sign out of Google? Your data remains safely in the cloud.")) {
+                    auth.signOut().catch(err => console.error(err));
+                }
+                return;
+            }
+
+            const provider = new firebase.auth.GoogleAuthProvider();
+            auth.signInWithPopup(provider).catch((error) => {
+                console.error("Google Sign-In Error:", error);
+                alert("Sign-in failed: " + error.message);
+            });
+        }
+
         function initLocalStorageMode() {
-            isCloudSynced = false;
-            updateSyncBadge(false);
+            if (isCloudSynced) return; // Don't override if cloud is active
             try {
                 const saved = localStorage.getItem('budget_app_data');
                 if (saved) {
@@ -265,20 +285,25 @@
         }
 
         function saveLocalData() {
+            if (isCloudSynced) return;
             try {
                 localStorage.setItem('budget_app_data', JSON.stringify(appData));
             } catch(e) {}
         }
 
-        function updateSyncBadge(synced) {
+        function updateSyncBadge(synced, userName = '') {
             const badge = document.getElementById('sync-status');
+            const btnText = document.getElementById('auth-btn-text');
             if (!badge) return;
+
             if (synced) {
-                badge.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span> Cloud Synced (Firebase)`;
+                badge.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span> Google Cloud Synced`;
                 badge.className = "text-xs text-emerald-600 font-medium flex items-center gap-1.5 mt-0.5";
+                if (btnText) btnText.innerText = userName ? `Signed in (${userName.split(' ')[0]})` : 'Signed In (Sign Out)';
             } else {
                 badge.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-indigo-500"></span> Local Storage Active`;
                 badge.className = "text-xs text-indigo-600 font-medium flex items-center gap-1.5 mt-0.5";
+                if (btnText) btnText.innerText = 'Sign in with Google';
             }
         }
 
@@ -293,13 +318,15 @@
                 }
             }).catch(err => {});
 
-            db.collection('users').doc(userId).collection('categories').onSnapshot(snapshot => {
+            if (unsubCategories) unsubCategories();
+            unsubCategories = db.collection('users').doc(userId).collection('categories').onSnapshot(snapshot => {
                 appData.categories = [];
                 snapshot.forEach(doc => appData.categories.push({ id: doc.id, ...doc.data() }));
                 renderApp();
             }, err => console.error("Cloud cat error:", err));
 
-            db.collection('users').doc(userId).collection('expenses').orderBy('date', 'desc').onSnapshot(snapshot => {
+            if (unsubExpenses) unsubExpenses();
+            unsubExpenses = db.collection('users').doc(userId).collection('expenses').orderBy('date', 'desc').onSnapshot(snapshot => {
                 appData.expenses = [];
                 snapshot.forEach(doc => appData.expenses.push({ id: doc.id, ...doc.data() }));
                 renderApp();
