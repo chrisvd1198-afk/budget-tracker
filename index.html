@@ -205,17 +205,30 @@
                     auth = firebase.auth();
                     db = firebase.firestore();
 
+                    // Safety timeout: If Firebase auth hangs for > 3 seconds, fall back to local mode gracefully
+                    let authTimedOut = false;
+                    const timeoutTimer = setTimeout(() => {
+                        if (!isCloudSynced) {
+                            authTimedOut = true;
+                            console.warn("Firebase auth timed out, falling back to local mode.");
+                            initLocalStorageMode();
+                        }
+                    }, 3500);
+
                     auth.signInAnonymously().then((userCredential) => {
+                        if (authTimedOut) return;
+                        clearTimeout(timeoutTimer);
                         userId = userCredential.user.uid;
                         isCloudSynced = true;
                         updateSyncBadge(true);
                         
-                        // Ensure parent user document exists to anchor subcollections
                         db.collection('users').doc(userId).set({ lastLogin: new Date().toISOString() }, { merge: true })
                           .catch(err => console.log("User doc init note:", err));
 
                         setupCloudListeners();
                     }).catch((err) => {
+                        if (authTimedOut) return;
+                        clearTimeout(timeoutTimer);
                         console.warn("Firebase sign in failed:", err);
                         initLocalStorageMode();
                     });
@@ -258,4 +271,359 @@
         }
 
         function updateSyncBadge(synced) {
-            const badge = document.getElementById('
+            const badge = document.getElementById('sync-status');
+            if (!badge) return;
+            if (synced) {
+                badge.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span> Cloud Synced (Firebase)`;
+                badge.className = "text-xs text-emerald-600 font-medium flex items-center gap-1.5 mt-0.5";
+            } else {
+                badge.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-indigo-500"></span> Local Storage Active`;
+                badge.className = "text-xs text-indigo-600 font-medium flex items-center gap-1.5 mt-0.5";
+            }
+        }
+
+        function setupCloudListeners() {
+            if (!db || !userId) return;
+
+            db.collection('users').doc(userId).get().then(doc => {
+                if (doc.exists && doc.data().currency) {
+                    appData.currency = doc.data().currency;
+                    const curSelect = document.getElementById('currency-select');
+                    if (curSelect) curSelect.value = appData.currency;
+                }
+            }).catch(err => {});
+
+            db.collection('users').doc(userId).collection('categories').onSnapshot(snapshot => {
+                appData.categories = [];
+                snapshot.forEach(doc => appData.categories.push({ id: doc.id, ...doc.data() }));
+                renderApp();
+            }, err => console.error("Cloud cat error:", err));
+
+            db.collection('users').doc(userId).collection('expenses').orderBy('date', 'desc').onSnapshot(snapshot => {
+                appData.expenses = [];
+                snapshot.forEach(doc => appData.expenses.push({ id: doc.id, ...doc.data() }));
+                renderApp();
+            }, err => console.error("Cloud exp error:", err));
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const curSelect = document.getElementById('currency-select');
+            if (curSelect) {
+                curSelect.addEventListener('change', (e) => {
+                    appData.currency = e.target.value;
+                    if (isCloudSynced && db && userId) {
+                        db.collection('users').doc(userId).set({ currency: appData.currency }, { merge: true });
+                    } else {
+                        saveLocalData();
+                    }
+                    renderApp();
+                });
+            }
+        });
+
+        function openCategoryModal(catId = null) {
+            const modal = document.getElementById('category-modal');
+            if (!modal) return;
+
+            if (catId) {
+                const cat = appData.categories.find(c => c.id === catId);
+                if (cat) {
+                    document.getElementById('cat-modal-title').innerText = "Edit Category";
+                    document.getElementById('cat-edit-id').value = cat.id;
+                    document.getElementById('cat-name').value = cat.name;
+                    document.getElementById('cat-budget').value = cat.budget;
+                }
+            } else {
+                document.getElementById('cat-modal-title').innerText = "Create Budget Category";
+                document.getElementById('cat-edit-id').value = "";
+                document.getElementById('cat-name').value = "";
+                document.getElementById('cat-budget').value = "";
+            }
+            modal.style.display = 'flex';
+        }
+
+        function closeCategoryModal() {
+            const modal = document.getElementById('category-modal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        async function handleCategorySubmit(e) {
+            e.preventDefault();
+            const editId = document.getElementById('cat-edit-id').value;
+            const name = document.getElementById('cat-name').value.trim();
+            const budget = parseFloat(document.getElementById('cat-budget').value);
+
+            if (!name || isNaN(budget)) return;
+
+            if (editId) {
+                if (isCloudSynced && db && userId) {
+                    await db.collection('users').doc(userId).collection('categories').doc(editId).update({ name, budget });
+                } else {
+                    const index = appData.categories.findIndex(c => c.id === editId);
+                    if (index !== -1) {
+                        appData.categories[index] = { id: editId, name, budget };
+                        saveLocalData();
+                    }
+                }
+            } else {
+                if (isCloudSynced && db && userId) {
+                    await db.collection('users').doc(userId).collection('categories').add({ name, budget });
+                } else {
+                    appData.categories.push({ id: 'cat-' + Date.now(), name, budget });
+                    saveLocalData();
+                }
+            }
+
+            closeCategoryModal();
+            renderApp();
+        }
+
+        async function deleteCategory(id) {
+            if (!confirm("Are you sure you want to delete this category?")) return;
+
+            if (isCloudSynced && db && userId) {
+                await db.collection('users').doc(userId).collection('categories').doc(id).delete();
+            } else {
+                appData.categories = appData.categories.filter(c => c.id !== id);
+                saveLocalData();
+            }
+            renderApp();
+        }
+
+        async function handleExpenseSubmit(e) {
+            e.preventDefault();
+            const categoryId = document.getElementById('expense-category').value;
+            const amount = parseFloat(document.getElementById('expense-amount').value);
+            const note = document.getElementById('expense-note').value.trim();
+
+            if (!categoryId || isNaN(amount) || !note) return;
+
+            const categoryObj = appData.categories.find(c => c.id === categoryId);
+            const newExpense = {
+                categoryId,
+                categoryName: categoryObj ? categoryObj.name : 'General',
+                amount,
+                note,
+                date: new Date().toISOString()
+            };
+
+            if (isCloudSynced && db && userId) {
+                await db.collection('users').doc(userId).collection('expenses').add(newExpense);
+            } else {
+                newExpense.id = 'exp-' + Date.now();
+                appData.expenses.unshift(newExpense);
+                saveLocalData();
+            }
+
+            document.getElementById('expense-amount').value = '';
+            document.getElementById('expense-note').value = '';
+            renderApp();
+        }
+
+        async function deleteExpense(id) {
+            if (isCloudSynced && db && userId) {
+                await db.collection('users').doc(userId).collection('expenses').doc(id).delete();
+            } else {
+                appData.expenses = appData.expenses.filter(exp => exp.id !== id);
+                saveLocalData();
+            }
+            renderApp();
+        }
+
+        function seedSampleData() {
+            const sampleCats = [
+                { name: 'Groceries', budget: 5000 },
+                { name: 'Fuel & Transport', budget: 2500 },
+                { name: 'Dining Out', budget: 1500 }
+            ];
+            const sampleExps = [
+                { categoryName: 'Groceries', amount: 1250, note: 'Supermarket weekly run' },
+                { categoryName: 'Fuel & Transport', amount: 850, note: 'Engen fill up' }
+            ];
+
+            if (isCloudSynced && db && userId) {
+                sampleCats.forEach(async (cat) => {
+                    await db.collection('users').doc(userId).collection('categories').add(cat);
+                });
+                setTimeout(async () => {
+                    const snap = await db.collection('users').doc(userId).collection('categories').get();
+                    let catMap = {};
+                    snap.forEach(d => { catMap[d.data().name] = d.id; });
+
+                    sampleExps.forEach(async (exp) => {
+                        exp.categoryId = catMap[exp.categoryName] || '';
+                        exp.date = new Date().toISOString();
+                        await db.collection('users').doc(userId).collection('expenses').add(exp);
+                    });
+                }, 800);
+            } else {
+                appData.categories = sampleCats.map((c, i) => ({ id: 'cat-s' + i, ...c }));
+                appData.expenses = sampleExps.map((e, i) => ({
+                    id: 'exp-s' + i,
+                    categoryId: appData.categories[i % appData.categories.length].id,
+                    date: new Date().toISOString(),
+                    ...e
+                }));
+                saveLocalData();
+                renderApp();
+            }
+        }
+
+        function renderApp() {
+            const cur = appData.currency || 'R';
+            const categories = appData.categories || [];
+            const expenses = appData.expenses || [];
+
+            const selectEl = document.getElementById('expense-category');
+            if (selectEl) {
+                const currentSelected = selectEl.value;
+                selectEl.innerHTML = '<option value="">Select Category</option>' + 
+                    categories.map(c => `<option value="${c.id}">${c.name} (Budget: ${cur} ${c.budget.toLocaleString()})</option>`).join('');
+                selectEl.value = currentSelected;
+            }
+
+            let totalBudget = 0;
+            let totalSpent = 0;
+            const catSpentMap = {};
+
+            expenses.forEach(exp => {
+                catSpentMap[exp.categoryId] = (catSpentMap[exp.categoryId] || 0) + exp.amount;
+                totalSpent += exp.amount;
+            });
+
+            const catListEl = document.getElementById('category-list');
+            if (catListEl) {
+                if (categories.length === 0) {
+                    catListEl.innerHTML = `<div class="text-center py-8 text-slate-400 text-sm">No categories added yet. Click "Add Category" to begin.</div>`;
+                } else {
+                    catListEl.innerHTML = categories.map(cat => {
+                        const spent = catSpentMap[cat.id] || 0;
+                        const remaining = cat.budget - spent;
+                        const pct = cat.budget > 0 ? Math.min(Math.round((spent / cat.budget) * 100), 100) : 0;
+                        totalBudget += cat.budget;
+
+                        let barColor = 'bg-emerald-500';
+                        let badgeClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                        if (pct >= 100) {
+                            barColor = 'bg-rose-500';
+                            badgeClass = 'bg-rose-50 text-rose-700 border-rose-200';
+                        } else if (pct >= 75) {
+                            barColor = 'bg-amber-500';
+                            badgeClass = 'bg-amber-50 text-amber-700 border-amber-200';
+                        }
+
+                        return `
+                            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <div class="flex justify-between items-center mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-bold text-sm text-slate-900">${cat.name}</span>
+                                        <button type="button" onclick="openCategoryModal('${cat.id}')" class="text-slate-400 hover:text-indigo-600 transition p-1 cursor-pointer" title="Edit Budget">
+                                            <i class="fa-solid fa-pen text-xs"></i>
+                                        </button>
+                                        <button type="button" onclick="deleteCategory('${cat.id}')" class="text-slate-400 hover:text-rose-600 transition p-1 cursor-pointer" title="Delete Category">
+                                            <i class="fa-solid fa-trash-can text-xs"></i>
+                                        </button>
+                                    </div>
+                                    <span class="text-xs font-semibold px-2 py-0.5 rounded-full border ${badgeClass}">
+                                        ${cur} ${remaining.toLocaleString()} left
+                                    </span>
+                                </div>
+                                <div class="flex justify-between text-xs text-slate-500 mb-1.5">
+                                    <span>Spent: ${cur} ${spent.toLocaleString()}</span>
+                                    <span>Budget: ${cur} ${cat.budget.toLocaleString()} (${pct}%)</span>
+                                </div>
+                                <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                                    <div class="${barColor} h-2 rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            }
+
+            const totalRemaining = totalBudget - totalSpent;
+            const tbEl = document.getElementById('total-budget');
+            const tsEl = document.getElementById('total-spent');
+            const remEl = document.getElementById('total-remaining');
+
+            if (tbEl) tbEl.innerText = `${cur} ${totalBudget.toLocaleString()}`;
+            if (tsEl) tsEl.innerText = `${cur} ${totalSpent.toLocaleString()}`;
+            if (remEl) {
+                remEl.innerText = `${cur} ${totalRemaining.toLocaleString()}`;
+                remEl.className = `text-lg md:text-xl font-bold mt-1 ${totalRemaining < 0 ? 'text-rose-600' : 'text-emerald-600'}`;
+            }
+
+            const txListEl = document.getElementById('transaction-list');
+            const txCountEl = document.getElementById('transaction-count');
+            if (txCountEl) txCountEl.innerText = `${expenses.length} items`;
+
+            if (txListEl) {
+                if (expenses.length === 0) {
+                    txListEl.innerHTML = `<div class="text-center py-6 text-slate-400 text-xs">No transactions recorded yet.</div>`;
+                } else {
+                    txListEl.innerHTML = expenses.map(exp => `
+                        <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200 text-sm">
+                            <div>
+                                <p class="font-semibold text-slate-900 leading-tight">${exp.note}</p>
+                                <p class="text-xs text-slate-500 mt-0.5"><span class="font-medium text-indigo-600">${exp.categoryName || 'General'}</span> &bull; ${new Date(exp.date).toLocaleDateString()}</p>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="font-bold text-slate-900">-${cur} ${exp.amount.toLocaleString()}</span>
+                                <button type="button" onclick="deleteExpense('${exp.id}')" class="text-slate-400 hover:text-rose-600 transition p-1 cursor-pointer" title="Delete Expense">
+                                    <i class="fa-solid fa-trash-can text-xs"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            }
+
+            renderChart(categories, catSpentMap, cur);
+        }
+
+        function renderChart(categories, catSpentMap, cur) {
+            const canvasEl = document.getElementById('spendingChart');
+            if (!canvasEl) return;
+            const ctx = canvasEl.getContext('2d');
+            const labels = categories.map(c => c.name);
+            const data = categories.map(c => catSpentMap[c.id] || 0);
+
+            if (spendingChartInstance) {
+                spendingChartInstance.destroy();
+            }
+
+            const isEmpty = data.every(val => val === 0);
+            const chartLabels = isEmpty ? ['No Spending Yet'] : labels;
+            const chartData = isEmpty ? [1] : data;
+            const chartColors = isEmpty ? ['#e2e8f0'] : ['#4f46e5', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+            spendingChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: chartLabels,
+                    datasets: [{
+                        data: chartData,
+                        backgroundColor: chartColors,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 12,
+                                font: { size: 11, family: "'Plus Jakarta Sans', sans-serif" }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        window.onload = initApp;
+    </script>
+</body>
+</html>
